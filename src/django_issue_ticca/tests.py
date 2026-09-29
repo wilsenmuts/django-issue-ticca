@@ -2,10 +2,12 @@ import json
 from datetime import timedelta
 from unittest.mock import patch
 
+from django.db import OperationalError
 from django.http import HttpResponse
 from django.test import RequestFactory, TestCase, override_settings
 from django.utils import timezone
 
+from .check.database import check_database
 from .check.health import CHECKS, normalize_status, run_health_checks
 from .context import clear_current_request, set_current_request
 from .exceptions import TrackedException
@@ -21,6 +23,7 @@ from .models import (
     hourly_user_stat,
     monitoring_table,
 )
+from .security import sign_url, signature_header
 from .stats import prune_hourly_stats, record_hourly_user
 from .tracking.exceptions import issue_ticca_exception_handler
 from .views import HourlyUserStatsView, SystemHealthView
@@ -253,7 +256,8 @@ class HourlyUserStatsTests(TestCase):
         self.assertEqual(hourly_user_stat.objects.count(), 0)
 
     def test_endpoint_is_wired_up(self):
-        response = self.client.get('/stats/users/hourly/')
+        url = '/stats/users/hourly/'
+        response = self.client.get(url, headers={signature_header(): sign_url(url)})
         self.assertEqual(response.status_code, 200)
         self.assertIn('buckets', response.json())
         # The middleware records one bucket for this anonymous request.
@@ -351,6 +355,161 @@ class TrackedExceptionTests(TestCase):
         middleware.process_exception(request, exc)
         incident.refresh_from_db()
         self.assertEqual(incident.calls_before_closure, 1)
+
+
+@override_settings(ISSUE_TICCA={'ACCESS_KEY': 'test-access-key'})
+class SignatureProtectionTests(TestCase):
+    """Every issue-ticca endpoint requires a valid signature header."""
+
+    def test_missing_signature_is_rejected(self):
+        response = self.client.get('/monitoring/')
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(
+            response.json()['error'], 'invalid or missing signature'
+        )
+
+    def test_wrong_signature_is_rejected(self):
+        response = self.client.get(
+            '/monitoring/', headers={signature_header(): 'deadbeef'}
+        )
+        self.assertEqual(response.status_code, 401)
+
+    def test_signature_for_another_url_is_rejected(self):
+        response = self.client.get(
+            '/monitoring/',
+            headers={signature_header(): sign_url('/somewhere/else/')},
+        )
+        self.assertEqual(response.status_code, 401)
+
+    def test_valid_signature_allows_access(self):
+        response = self.client.get(
+            '/monitoring/', headers={signature_header(): sign_url('/monitoring/')}
+        )
+        self.assertEqual(response.status_code, 200)
+
+    def test_signature_covers_the_query_string(self):
+        url = '/monitoring/?page=1&page_size=5'
+        good = self.client.get(url, headers={signature_header(): sign_url(url)})
+        self.assertEqual(good.status_code, 200)
+
+        bad = self.client.get(
+            url, headers={signature_header(): sign_url('/monitoring/?page=2')}
+        )
+        self.assertEqual(bad.status_code, 401)
+
+    def test_missing_access_key_fails_closed(self):
+        with override_settings(ISSUE_TICCA={}):
+            response = self.client.get('/monitoring/')
+        self.assertEqual(response.status_code, 503)
+
+    def test_unprotected_paths_skip_verification(self):
+        with override_settings(
+            ISSUE_TICCA={
+                'ACCESS_KEY': 'test-access-key',
+                'UNPROTECTED_PATHS': ['/health/'],
+            }
+        ):
+            response = self.client.get('/health/')
+        self.assertNotEqual(response.status_code, 401)
+
+    def test_custom_header_name_is_honoured(self):
+        with override_settings(
+            ISSUE_TICCA={
+                'ACCESS_KEY': 'test-access-key',
+                'SIGNATURE_HEADER': 'X-Custom-Sig',
+            }
+        ):
+            response = self.client.get(
+                '/monitoring/', headers={'X-Custom-Sig': sign_url('/monitoring/')}
+            )
+        self.assertEqual(response.status_code, 200)
+
+    def test_rejected_requests_do_not_resolve_incidents(self):
+        log_incident(
+            kind=IncidentKind.EXCEPTION,
+            exception_type='ValueError',
+            affected_method='/monitoring/',
+            message='boom',
+        )
+        # Unsigned request -> 401; that must not look like a healthy request.
+        self.assertEqual(self.client.get('/monitoring/').status_code, 401)
+        self.assertEqual(monitoring_table.objects.get().status, IncidentStatus.OPEN)
+
+    def test_sign_url_requires_a_key(self):
+        with override_settings(ISSUE_TICCA={}):
+            with self.assertRaises(ValueError):
+                sign_url('/monitoring/')
+
+
+class DatabaseFailureReportingTests(TestCase):
+    """A DB failure must name the probe and the error, not just say 'unhealthy'."""
+
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    def test_connection_failure_names_the_probe_and_the_error(self):
+        with patch('django_issue_ticca.check.database.connection') as conn:
+            conn.ensure_connection.side_effect = OperationalError('server closed the connection')
+            result = check_database()
+
+        self.assertEqual(result['status'], 'unhealthy')
+        self.assertEqual(result['failing'], ['connection'])
+        self.assertEqual(result['skipped'], ['read', 'transaction', 'database_probe'])
+        self.assertIn('server closed the connection', result['error'])
+        self.assertIn('OperationalError', result['error'])
+        self.assertEqual(
+            result['database']['connection']['exception'], 'OperationalError'
+        )
+
+    def test_view_returns_the_database_error_instead_of_failing(self):
+        with patch('django_issue_ticca.check.database.connection') as conn:
+            conn.ensure_connection.side_effect = OperationalError('server closed the connection')
+            response = SystemHealthView.as_view()(self.factory.get('/health/'))
+
+        self.assertEqual(response.status_code, 503)
+        body = json.loads(response.content)
+        self.assertEqual(body['failing'], ['database'])
+        self.assertEqual(body['failing_checks'], ['database.connection'])
+        self.assertEqual(body['errors'][0]['probe'], 'connection')
+        self.assertIn('server closed the connection', body['errors'][0]['error'])
+        self.assertEqual(body['errors'][0]['exception'], 'OperationalError')
+
+    def test_aggregate_reports_probe_and_error_for_a_sub_probe(self):
+        payload = {
+            'status': 'unhealthy',
+            'database': {
+                'read': {
+                    'status': 'error',
+                    'error': 'no such table: issue_ticca',
+                    'exception': 'OperationalError',
+                },
+            },
+            'failing': ['read'],
+        }
+        with patch.dict(CHECKS, {'database': lambda: payload}):
+            report = run_health_checks(['database'])
+
+        self.assertEqual(report['failing'], ['database'])
+        self.assertEqual(report['failing_checks'], ['database.read'])
+        self.assertEqual(report['errors'][0]['check'], 'database.read')
+        self.assertEqual(report['errors'][0]['error'], 'no such table: issue_ticca')
+        self.assertEqual(report['errors'][0]['exception'], 'OperationalError')
+
+    def test_aggregate_reports_whole_component_failures(self):
+        payload = {'status': 'error', 'error': 'connection refused'}
+        with patch.dict(CHECKS, {'redis': lambda: payload}):
+            report = run_health_checks(['redis'])
+
+        self.assertEqual(report['failing'], ['redis'])
+        self.assertEqual(report['failing_checks'], ['redis'])
+        self.assertEqual(report['errors'][0]['check'], 'redis')
+        self.assertIn('connection refused', report['errors'][0]['error'])
+
+    def test_healthy_report_has_no_errors(self):
+        report = run_health_checks()
+        self.assertEqual(report['failing'], [])
+        self.assertEqual(report['failing_checks'], [])
+        self.assertEqual(report['errors'], [])
 
 
 class HealthAggregationTests(TestCase):

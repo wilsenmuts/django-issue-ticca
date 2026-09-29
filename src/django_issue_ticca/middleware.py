@@ -297,7 +297,9 @@ class ResponseTimeLoggingMiddleware:
     def _record(self, request, response, duration: float) -> None:
         threshold = slow_response_threshold()
         status_code = getattr(response, 'status_code', 200)
-        failed = status_code >= 500
+        # Only a genuinely successful response proves the URL is healthy. A 4xx
+        # (e.g. a rejected 401) must not auto-close incidents for that URL.
+        failed = status_code >= 400
 
         if threshold is not None and duration >= threshold and not failed:
             log_slow_response(request, duration, threshold)

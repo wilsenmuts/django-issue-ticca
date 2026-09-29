@@ -40,6 +40,7 @@ projects simple. Contributions of every kind are welcome; see
   and returns `healthy` / `unhealthy` with a per-component breakdown.
 - 📈 **Hourly user stats** — unique users and request counts per hour for the last 7 days,
   with older rows pruned automatically whenever the stats endpoint is called.
+- 🔐 **Signed endpoints** — every route requires an HMAC-SHA256 signature keyed by your access key.
 - 🧩 **Optional DRF support** — a custom exception handler so DRF-caught 5xx errors are logged too.
 - 📣 **Signals** — `incident_logged` / `incident_resolved` hooks for alerts and tickets.
 - 🧷 **Self-logging exceptions** — subclass `TrackedException` and it records itself in the incident log.
@@ -131,6 +132,7 @@ ISSUE_TICCA = {
     'SLOW_RESPONSE_THRESHOLD': 10.0,   # seconds; 0 or None disables slow-response logging
     'AUTO_RESOLVE_ON_SUCCESS': True,   # close open incidents when the URL is healthy again
     'ENABLED': True,                   # master on/off switch for the middlewares
+    'ACCESS_KEY': 'a-long-random-secret',  # REQUIRED: callers must sign every request
     'TRACK_HOURLY_USERS': True,        # record unique users / requests per hour
     'HOURLY_STATS_RETENTION_DAYS': 7,  # keep 7 days; older rows pruned on endpoint call
 
@@ -153,6 +155,9 @@ ISSUE_TICCA_AUTO_RESOLVE_ON_SUCCESS = True
 | `SLOW_RESPONSE_THRESHOLD` | `10.0` | Seconds before a request is logged as slow. `0`/`None` disables. |
 | `AUTO_RESOLVE_ON_SUCCESS` | `True` | Close open incidents for a URL when it succeeds and is not slow. |
 | `ENABLED` | `True` | Master switch for the logging middlewares. |
+| `ACCESS_KEY` | `None` | Shared secret callers sign with. Unset → endpoints fail closed (`503`). |
+| `SIGNATURE_HEADER` | `X-Issue-Ticca-Signature` | Header that carries the signature. |
+| `UNPROTECTED_PATHS` | `[]` | Path suffixes that skip verification, e.g. `['/health/']`. |
 | `TRACK_EXCEPTIONS` | `True` | Let `TrackedException` subclasses record themselves on creation. |
 | `TRACK_HOURLY_USERS` | `True` | Record one row per user per hour (unique users / requests). |
 | `HOURLY_STATS_RETENTION_DAYS` | `7` | Days of hourly stats to keep; older rows are pruned on endpoint call. |
@@ -175,6 +180,51 @@ REST_FRAMEWORK = {
 Only server-side failures (HTTP 5xx) are recorded, so expected `4xx` validation responses do
 not flood the incident log.
 
+### 5. Secure the endpoints (access key)
+
+Set an access key and every issue-ticca endpoint will require a signature:
+
+```python
+ISSUE_TICCA = {
+    'ACCESS_KEY': 'a-long-random-secret',
+}
+```
+
+Callers must send a header whose value is the **HMAC-SHA256 of the request URL
+(path + query string)**, keyed by that access key:
+
+```text
+GET /issue-ticca/monitoring/?page=2
+X-Issue-Ticca-Signature: 1f0c9a...   # hex(HMAC-SHA256(key, "/issue-ticca/monitoring/?page=2"))
+```
+
+Build it with the bundled helper (or any HMAC-SHA256 implementation):
+
+```python
+from django_issue_ticca.security import sign_url, signature_header
+
+url = "/issue-ticca/monitoring/?page=2"
+headers = {signature_header(): sign_url(url, key)}
+requests.get(f"https://example.com{url}", headers=headers)
+```
+
+Verification **fails closed**: with no key configured the endpoints return `503` instead of
+serving incident data, and missing/incorrect signatures get `401`. The scheme and host are
+**not** part of the signed payload, so signatures stay valid behind proxies and load
+balancers.
+
+Some paths legitimately need to stay public (load-balancer probes). Exempt them by path
+suffix:
+
+```python
+ISSUE_TICCA = {
+    'ACCESS_KEY': 'a-long-random-secret',
+    'UNPROTECTED_PATHS': ['/health/'],   # skip verification for /issue-ticca/health/
+}
+```
+
+Rename the header with `SIGNATURE_HEADER` (default `X-Issue-Ticca-Signature`).
+
 ---
 
 ## Endpoints
@@ -191,6 +241,11 @@ not flood the incident log.
 | `GET` | `/issue-ticca/stats/users/` | In-process active-user counters. |
 | `GET` | `/issue-ticca/stats/users/hourly/` | Unique users per hour for the last 7 days. Use `?days=1..90` for a shorter window. |
 
+All endpoints require a valid signature header (see
+[Secure the endpoints](#5-secure-the-endpoints-access-key)) unless their path is listed in
+`UNPROTECTED_PATHS`. Signed requests that fail verification get `401`, and `503` is returned
+when no access key is configured.
+
 Example health response:
 
 ```json
@@ -203,7 +258,9 @@ Example health response:
     "celery":   { "status": "ok", "workers_online": 2, "latency_ms": 5.6 }
   },
   "failing": [],
-  "summary": { "ok": 3, "healthy": 1 },
+  "failing_checks": [],
+  "errors": [],
+  "summary": { "ok": 4 },
   "latency_ms": 12.3,
   "timestamp": "2026-09-29T10:00:00+00:00"
 }
@@ -212,6 +269,29 @@ Example health response:
 A component that is absent or unconfigured reports `not_configured` and does **not** make the
 system unhealthy. Only a real `error` does. Status words are normalised, so `healthy` counts
 as `ok` and `unhealthy`/`failed` as `error`.
+
+A failing report also tells you **which probe failed and why** — `failing_checks` lists probe
+paths (e.g. `database.read`) and `errors` carries the message plus the exception class:
+
+```json
+{
+  "status": "unhealthy",
+  "failing": ["database"],
+  "failing_checks": ["database.connection"],
+  "errors": [
+    {
+      "check": "database.connection",
+      "probe": "connection",
+      "error": "server closed the connection",
+      "exception": "OperationalError"
+    }
+  ]
+}
+```
+
+If the database connection itself fails, the remaining database probes are reported in that
+component's `skipped` array instead of being silently dropped, so a database problem can
+never go unnoticed.
 
 ### Hourly user stats
 

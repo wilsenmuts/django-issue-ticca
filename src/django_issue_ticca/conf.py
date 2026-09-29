@@ -31,6 +31,13 @@ DEFAULTS = {
     'ENABLED': True,
     # Let ``TrackedException`` subclasses record themselves when created.
     'TRACK_EXCEPTIONS': True,
+    # Shared secret callers must sign with to reach the issue-ticca endpoints.
+    # When unset the endpoints fail closed (503) rather than serving data.
+    'ACCESS_KEY': None,
+    # Header carrying the signature.
+    'SIGNATURE_HEADER': 'X-Issue-Ticca-Signature',
+    # Path suffixes that skip signature verification, e.g. ['/health/'].
+    'UNPROTECTED_PATHS': [],
     # Record per-user hourly stats (unique users / requests per hour).
     'TRACK_HOURLY_USERS': True,
     # How many days of hourly user stats to keep. Older rows are pruned whenever

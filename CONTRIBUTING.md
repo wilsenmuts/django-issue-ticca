@@ -64,6 +64,7 @@ pytest                                        # optional; uses the same settings
 | --- | --- |
 | `models.py` | `database_probe`, `monitoring_table` (incidents), `hourly_user_stat`. |
 | `exceptions.py` | `TrackedException` — an `Exception` subclass that logs itself when created. |
+| `security.py` | Signature verification and the `sign_url` helper for the access key. |
 | `incidents.py` | Incident lifecycle: `log_incident`, `log_exception`, `log_slow_response`, `resolve_method`. |
 | `middleware.py` | Active-user tracking, exception logging, slow-response logging. |
 | `stats.py` | Hourly user stats: `record_hourly_user`, `prune_hourly_stats`, `hourly_user_stats`. |
@@ -134,6 +135,21 @@ CHECKS = {
 
 Status words are normalised, so `healthy` counts as `ok` and `unhealthy`/`failed` count as
 `error` (that's why `check_database()`'s `healthy`/`unhealthy` pair works).
+
+If your check runs several sub-probes, list the failed ones in a `failing` array so the report
+can name the probe as well as the error (`check_database()` does this):
+
+```python
+return {
+    "status": "unhealthy",
+    "checks": {
+        "read": {"status": "error", "error": "...", "exception": "..."},
+    },
+    "failing": ["read"],       # -> failing_checks: ["<component>.read"]
+    "skipped": [],
+    "error": "read: OperationalError: ...",
+}
+```
 
 Optional integrations must degrade to `not_configured` rather than raising, so the health
 endpoint never fails just because a subsystem isn't installed.

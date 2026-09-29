@@ -69,6 +69,20 @@ def normalize_status(status) -> str:
     return STATUS_ALIASES.get(str(status).strip().lower(), 'error')
 
 
+def _probe_detail(result: dict[str, Any], probe: str) -> dict[str, Any]:
+    """
+    Find the detail dict for a failing sub-probe.
+
+    A component may report failed sub-probes in a ``failing`` list; the detail
+    for each one lives in some nested mapping (``database`` for
+    ``check_database``), whatever that mapping is called.
+    """
+    for value in result.values():
+        if isinstance(value, dict) and isinstance(value.get(probe), dict):
+            return value[probe]
+    return {}
+
+
 def available_components() -> list[str]:
     return list(CHECKS)
 
@@ -86,7 +100,10 @@ def run_health_checks(components=None) -> dict[str, Any]:
         {
           "status": "healthy" | "unhealthy",
           "components": {"database": {...}, ...},
-          "failing": [...],
+          "failing": ["database"],
+          "failing_checks": ["database.read"],
+          "errors": [{"check": "database.read", "probe": "read",
+                      "error": "no such table", "exception": "OperationalError"}],
           "summary": {"ok": 2, "error": 1, "not_configured": 1},
           "latency_ms": 12.3,
           "timestamp": "2026-09-29T10:00:00+00:00",
@@ -116,17 +133,40 @@ def run_health_checks(components=None) -> dict[str, Any]:
 
     summary: dict[str, int] = {}
     failing: list[str] = []
+    failing_checks: list[str] = []
+    errors: list[dict[str, Any]] = []
+
     for name, result in results.items():
         # Normalise first: ``healthy`` must count as a pass.
         status = normalize_status(result.get('status', 'error'))
         summary[status] = summary.get(status, 0) + 1
-        if status not in NON_FATAL_STATUSES:
-            failing.append(name)
+        if status in NON_FATAL_STATUSES:
+            continue
+
+        failing.append(name)
+
+        # Say *which* probe failed and *why*. Components that run sub-probes
+        # (like check_database) list them in ``failing``; others fail as a whole.
+        probes = result.get('failing') or [None]
+        for probe in probes:
+            detail = _probe_detail(result, probe) if probe else {}
+            check_name = f'{name}.{probe}' if probe else name
+            failing_checks.append(check_name)
+            errors.append({
+                'check': check_name,
+                'probe': probe,
+                'error': (
+                    detail.get('error') or result.get('error') or 'check failed'
+                ),
+                'exception': detail.get('exception') or result.get('exception'),
+            })
 
     return {
         'status': 'unhealthy' if failing else 'healthy',
         'components': results,
         'failing': failing,
+        'failing_checks': failing_checks,
+        'errors': errors,
         'summary': summary,
         'latency_ms': round((time.perf_counter() - start) * 1000, 2),
         'timestamp': timezone.now().isoformat(),

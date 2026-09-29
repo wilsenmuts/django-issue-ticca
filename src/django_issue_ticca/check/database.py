@@ -16,6 +16,19 @@ def _latency(start: float) -> float:
     return round((time.perf_counter() - start) * 1000, 2)
 
 
+#: The probes ``check_database`` runs, in order.
+_DATABASE_PROBES = ("connection", "read", "transaction", "database_probe")
+
+
+def _summarize(probe: str, detail: dict[str, Any]) -> str:
+    """One-line ``probe: Exception: message`` summary for a failed probe."""
+    error = detail.get("error") or "check failed"
+    exception = detail.get("exception")
+    if exception:
+        return f"{probe}: {exception}: {error}"
+    return f"{probe}: {error}"
+
+
 def check_connection() -> dict[str, Any]:
     """Check whether Django can establish a database connection."""
     start = time.perf_counter()
@@ -136,18 +149,34 @@ def check_database_probe() -> dict[str, Any]:
 
 
 def check_database() -> dict[str, Any]:
-    """Run the basic database health checks and return an aggregate result."""
+    """
+    Run the basic database health checks and return an aggregate result.
+
+    The result always says *which* probe failed and *why* so a database problem
+    can never go unnoticed::
+
+        {
+          "status": "unhealthy",
+          "database": {"connection": {...}, "read": {...}},
+          "failing": ["read"],          # the probe(s) that failed
+          "skipped": [],                # probes not run (connection down)
+          "error": "read: OperationalError: no such table",
+          "latency_ms": 2.1,
+        }
+    """
     start = time.perf_counter()
 
     connection_check = check_connection()
 
-    # Don't run further checks if we cannot connect.
+    # If we cannot connect, report the connection failure plus the probes we had
+    # to skip -- rather than silently returning only the connection entry.
     if connection_check["status"] != "ok":
         return {
             "status": "unhealthy",
-            "database": {
-                "connection": connection_check,
-            },
+            "database": {"connection": connection_check},
+            "failing": ["connection"],
+            "skipped": [p for p in _DATABASE_PROBES if p != "connection"],
+            "error": _summarize("connection", connection_check),
             "latency_ms": _latency(start),
         }
 
@@ -159,10 +188,13 @@ def check_database() -> dict[str, Any]:
     }
 
     # ``.get`` keeps this robust even if a future check omits ``status``.
-    healthy = all(check.get("status") == "ok" for check in checks.values())
+    failing = [name for name, check in checks.items() if check.get("status") != "ok"]
 
     return {
-        "status": "healthy" if healthy else "unhealthy",
+        "status": "healthy" if not failing else "unhealthy",
         "database": checks,
+        "failing": failing,
+        "skipped": [],
+        "error": _summarize(failing[0], checks[failing[0]]) if failing else None,
         "latency_ms": _latency(start),
     }

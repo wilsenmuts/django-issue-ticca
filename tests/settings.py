@@ -65,3 +65,8 @@ TEMPLATES = [
 ]
 
 STATIC_URL = "/static/"
+
+# Signature protection is exercised by the tests, so configure an access key.
+ISSUE_TICCA = {
+    "ACCESS_KEY": "test-access-key",
+}
