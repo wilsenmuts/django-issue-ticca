@@ -20,6 +20,7 @@ from .models import (
     monitoring_table,
 )
 from .stats import prune_hourly_stats, record_hourly_user
+from .tracking.exceptions import issue_ticca_exception_handler
 from .views import HourlyUserStatsView, SystemHealthView
 
 
@@ -348,4 +349,30 @@ class TrackedExceptionTests(TestCase):
         middleware.process_exception(request, exc)
         incident.refresh_from_db()
         self.assertEqual(incident.calls_before_closure, 1)
+
+
+class DRFExceptionHandlerTests(TestCase):
+    """The DRF handler records 5xx exceptions (works with or without DRF)."""
+
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    def test_records_server_errors(self):
+        request = self.factory.get('/api/orders/?token=secret')
+        response = issue_ticca_exception_handler(ValueError('boom'), {'request': request})
+
+        # DRF turns an unhandled exception into a 500, so no response is returned.
+        self.assertIsNone(response)
+        incident = monitoring_table.objects.get()
+        self.assertEqual(incident.exception_type, 'ValueError')
+        self.assertEqual(incident.affected_method, '/api/orders/')
+        self.assertTrue(request._issue_ticca_exception)
+
+    def test_does_not_double_count_tracked_exceptions(self):
+        request = self.factory.get('/api/orders/')
+        exc = PaymentGatewayError('boom')
+        issue_ticca_exception_handler(exc, {'request': request})
+
+        self.assertEqual(monitoring_table.objects.count(), 1)
+        self.assertEqual(monitoring_table.objects.get().calls_before_closure, 1)
 

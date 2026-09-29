@@ -57,6 +57,9 @@ all = [
 ]
 dev = [
     "build>=1.2",
+    # DRF is optional at runtime, but the test project registers it when present,
+    # so install it here to exercise the DRF integration in CI.
+    "djangorestframework>=3.14",
     "twine>=5.1",
     "ruff>=0.6",
     "pytest>=8.0",

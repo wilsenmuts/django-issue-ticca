@@ -5,11 +5,17 @@ It is intentionally minimal: just enough to exercise the app's checks, models,
 views and middleware against an in-memory SQLite database.
 """
 
+from importlib.util import find_spec
+
 SECRET_KEY = "django-issue-ticca-tests"
 DEBUG = True
 ALLOWED_HOSTS = ["*"]
 USE_TZ = True
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# DRF is an *optional* dependency, so only register it when it's importable.
+# `pip install -e ".[dev]"` includes it, but a bare install must still work.
+_HAS_DRF = find_spec("rest_framework") is not None
 
 INSTALLED_APPS = [
     "django.contrib.contenttypes",
@@ -18,9 +24,11 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    "rest_framework",
     "django_issue_ticca",
 ]
+
+if _HAS_DRF:
+    INSTALLED_APPS.append("rest_framework")
 
 DATABASES = {
     "default": {
