@@ -132,6 +132,9 @@ CHECKS = {
 | `skipped` | Intentionally not run. | No |
 | `error` | A real failure. | **Yes** (system becomes `unhealthy`) |
 
+Status words are normalised, so `healthy` counts as `ok` and `unhealthy`/`failed` count as
+`error` (that's why `check_database()`'s `healthy`/`unhealthy` pair works).
+
 Optional integrations must degrade to `not_configured` rather than raising, so the health
 endpoint never fails just because a subsystem isn't installed.
 

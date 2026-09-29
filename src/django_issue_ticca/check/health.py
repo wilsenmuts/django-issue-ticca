@@ -5,8 +5,13 @@ Aggregates every subsystem check into a single overall health report.
 
 Status vocabulary
 -----------------
-* ``healthy``        - every *configured* component is ok.
-* ``unhealthy``      - at least one configured component errored.
+Component checks return one of ``ok``, ``not_configured``, ``skipped`` or
+``error``. Status words are normalised, so ``healthy`` counts as ``ok`` and
+``unhealthy``/``failed`` count as ``error`` (``check_database`` uses the
+``healthy``/``unhealthy`` pair).
+
+* ``healthy``   - every *configured* component is ok.
+* ``unhealthy`` - at least one configured component errored.
 * ``not_configured`` / ``skipped`` components never make the system unhealthy.
 
 This is what ``views.SystemHealthView`` serves at ``/health/``.
@@ -36,6 +41,32 @@ CHECKS: dict[str, Callable[[], dict[str, Any]]] = {
 
 #: Statuses that do not make the overall system unhealthy.
 NON_FATAL_STATUSES = {'ok', 'not_configured', 'skipped'}
+
+#: Checks don't always use the same word for the same outcome (``check_database``
+#: returns ``healthy``/``unhealthy``). Map them onto the canonical vocabulary so
+#: a healthy component is never reported as failing. Unknown values are treated
+#: as errors, so genuine problems are never silently ignored.
+STATUS_ALIASES = {
+    'ok': 'ok',
+    'healthy': 'ok',
+    'up': 'ok',
+    'pass': 'ok',
+    'passed': 'ok',
+    'error': 'error',
+    'unhealthy': 'error',
+    'failed': 'error',
+    'fail': 'error',
+    'down': 'error',
+    'not_configured': 'not_configured',
+    'unconfigured': 'not_configured',
+    'skipped': 'skipped',
+    'ignored': 'skipped',
+}
+
+
+def normalize_status(status) -> str:
+    """Map a check's status onto the canonical vocabulary (defaults to error)."""
+    return STATUS_ALIASES.get(str(status).strip().lower(), 'error')
 
 
 def available_components() -> list[str]:
@@ -86,7 +117,8 @@ def run_health_checks(components=None) -> dict[str, Any]:
     summary: dict[str, int] = {}
     failing: list[str] = []
     for name, result in results.items():
-        status = result.get('status', 'error')
+        # Normalise first: ``healthy`` must count as a pass.
+        status = normalize_status(result.get('status', 'error'))
         summary[status] = summary.get(status, 0) + 1
         if status not in NON_FATAL_STATUSES:
             failing.append(name)

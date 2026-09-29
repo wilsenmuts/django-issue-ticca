@@ -210,7 +210,8 @@ Example health response:
 ```
 
 A component that is absent or unconfigured reports `not_configured` and does **not** make the
-system unhealthy. Only a real `error` does.
+system unhealthy. Only a real `error` does. Status words are normalised, so `healthy` counts
+as `ok` and `unhealthy`/`failed` as `error`.
 
 ### Hourly user stats
 

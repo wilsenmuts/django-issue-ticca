@@ -1,10 +1,12 @@
 import json
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.http import HttpResponse
 from django.test import RequestFactory, TestCase, override_settings
 from django.utils import timezone
 
+from .check.health import CHECKS, normalize_status, run_health_checks
 from .context import clear_current_request, set_current_request
 from .exceptions import TrackedException
 from .incidents import log_exception, log_incident, resolve_method
@@ -349,6 +351,59 @@ class TrackedExceptionTests(TestCase):
         middleware.process_exception(request, exc)
         incident.refresh_from_db()
         self.assertEqual(incident.calls_before_closure, 1)
+
+
+class HealthAggregationTests(TestCase):
+    def test_status_words_are_normalised(self):
+        cases = [
+            ('ok', 'ok'),
+            ('healthy', 'ok'),
+            ('OK', 'ok'),
+            (' Healthy ', 'ok'),
+            ('up', 'ok'),
+            ('error', 'error'),
+            ('unhealthy', 'error'),
+            ('failed', 'error'),
+            ('not_configured', 'not_configured'),
+            ('skipped', 'skipped'),
+            ('something-else', 'error'),
+            (None, 'error'),
+        ]
+        for raw, expected in cases:
+            self.assertEqual(normalize_status(raw), expected, repr(raw))
+
+    def test_healthy_component_is_not_reported_as_failing(self):
+        # Regression: check_database() returns 'healthy', which used to be
+        # treated as a failure by the aggregator.
+        payload = {
+            'status': 'healthy',
+            'database': {
+                'connection': {'status': 'ok', 'latency_ms': 0.03},
+                'read': {'status': 'ok', 'latency_ms': 0.09},
+            },
+            'latency_ms': 2.75,
+        }
+        with patch.dict(CHECKS, {'database': lambda: payload}):
+            report = run_health_checks(['database'])
+
+        self.assertEqual(report['status'], 'healthy')
+        self.assertEqual(report['failing'], [])
+        self.assertEqual(report['summary'], {'ok': 1})
+
+    def test_unhealthy_component_is_reported_as_failing(self):
+        with patch.dict(CHECKS, {'database': lambda: {'status': 'unhealthy'}}):
+            report = run_health_checks(['database'])
+
+        self.assertEqual(report['status'], 'unhealthy')
+        self.assertEqual(report['failing'], ['database'])
+        self.assertEqual(report['summary'], {'error': 1})
+
+    def test_real_report_does_not_flag_a_healthy_database(self):
+        report = run_health_checks()
+
+        self.assertEqual(report['components']['database']['status'], 'healthy')
+        self.assertEqual(report['failing'], [])
+        self.assertEqual(report['status'], 'healthy')
 
 
 class DRFExceptionHandlerTests(TestCase):
