@@ -30,8 +30,8 @@ All contributions are made under the project's [MIT License](LICENSE).
 ## Development setup
 
 ```bash
-# 1. Fork the repo on GitHub, then clone your fork (replace <owner> with the maintainer's handle)
-git clone https://github.com/<owner>/django-issue-ticca.git
+# 1. Fork the repo on GitHub, then clone your fork
+git clone https://github.com/wilsenmuts/django-issue-ticca.git
 cd django-issue-ticca
 
 # 2. Create a virtualenv and install with dev dependencies

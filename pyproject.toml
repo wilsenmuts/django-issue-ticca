@@ -67,11 +67,10 @@ dev = [
 ]
 
 [project.urls]
-# Replace <owner> with your GitHub username/org before publishing.
-Homepage = "https://github.com/<owner>/django-issue-ticca"
-Repository = "https://github.com/<owner>/django-issue-ticca"
-Issues = "https://github.com/<owner>/django-issue-ticca/issues"
-Changelog = "https://github.com/<owner>/django-issue-ticca/releases"
+Homepage = "https://github.com/wilsenmuts/django-issue-ticca"
+Repository = "https://github.com/wilsenmuts/django-issue-ticca"
+Issues = "https://github.com/wilsenmuts/django-issue-ticca/issues"
+Changelog = "https://github.com/wilsenmuts/django-issue-ticca/releases"
 
 [tool.setuptools]
 include-package-data = true

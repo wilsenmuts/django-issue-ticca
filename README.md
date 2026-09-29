@@ -3,7 +3,7 @@
 [![PyPI version](https://img.shields.io/pypi/v/django-issue-ticca.svg)](https://pypi.org/project/django-issue-ticca/)
 [![Python versions](https://img.shields.io/pypi/pyversions/django-issue-ticca.svg)](https://pypi.org/project/django-issue-ticca/)
 [![Django versions](https://img.shields.io/badge/django-4.2%20%7C%205.2-092E20.svg)](https://pypi.org/project/django-issue-ticca/)
-[![CI](https://github.com/<owner>/django-issue-ticca/actions/workflows/ci.yml/badge.svg)](https://github.com/<owner>/django-issue-ticca/actions/workflows/ci.yml)
+[![CI](https://github.com/wilsenmuts/django-issue-ticca/actions/workflows/ci.yml/badge.svg)](https://github.com/wilsenmuts/django-issue-ticca/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Support via Flutterwave](https://img.shields.io/badge/Support-Flutterwave-8a2be2.svg)](https://flutterwave.com/pay/reconnawdaq)
@@ -382,8 +382,6 @@ The package is published as **`django-issue-ticca`** using [Trusted Publishing](
    - **Repository:** `django-issue-ticca`
    - **Workflow name:** `publish.yml`
    - **Environment name:** `pypi`
-2. Replace the `<owner>` placeholders in `pyproject.toml` (`authors`, and the `Homepage`,
-   `Repository`, `Issues`, `Changelog` URLs) and in the README badges.
 
 To cut a release:
 
@@ -395,6 +393,9 @@ To cut a release:
 git tag v0.2.0
 git push origin v0.2.0
 ```
+
+> **PyPI never allows re-uploading a version.** If a publish run fails after some files were
+> uploaded, don't retry the same version — bump `__version__` and release again.
 
 Publishing a GitHub Release triggers `.github/workflows/publish.yml`, which builds the sdist
 and wheel and uploads them to PyPI. `CI` (`.github/workflows/ci.yml`) lints, runs system
@@ -428,7 +429,7 @@ The full guide — development setup, coding guidelines, adding a health check, 
 checklist — lives in **[CONTRIBUTING.md](CONTRIBUTING.md)**. In short:
 
 ```bash
-git clone https://github.com/<owner>/django-issue-ticca.git
+git clone https://github.com/wilsenmuts/django-issue-ticca.git
 cd django-issue-ticca
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
