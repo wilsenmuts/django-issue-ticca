@@ -116,7 +116,7 @@ class ExceptionMiddlewareTests(TestCase):
         self.assertEqual(incident.exception_type, 'ValueError')
         self.assertEqual(incident.affected_method, '/api/orders/')
         self.assertEqual(incident.calls_before_closure, 2)
-        self.assertTrue(getattr(request, '_issue_ticca_exception'))
+        self.assertTrue(request._issue_ticca_exception)
 
     def test_log_exception_uses_request_path_not_query_string(self):
         request = self.factory.get('/api/orders/?token=secret')

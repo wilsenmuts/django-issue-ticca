@@ -1,5 +1,6 @@
-import django_issue_ticca.models
 from django.db import migrations, models
+
+import django_issue_ticca.models
 
 
 class Migration(migrations.Migration):

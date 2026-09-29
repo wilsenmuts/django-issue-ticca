@@ -1,6 +1,6 @@
 from django.core.paginator import InvalidPage, Paginator
 from django.db.models import Count
-from django.http import HttpResponse, JsonResponse
+from django.http import JsonResponse
 from django.views import View
 
 from .check.database import check_database

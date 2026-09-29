@@ -14,7 +14,8 @@ This is what ``views.SystemHealthView`` serves at ``/health/``.
 
 import logging
 import time
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from django.utils import timezone
 

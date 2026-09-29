@@ -2,7 +2,6 @@ import atexit
 import logging
 import os
 import queue
-import socket
 import sqlite3
 import threading
 import time
