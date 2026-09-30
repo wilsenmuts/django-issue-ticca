@@ -24,6 +24,7 @@ matter, but they must sit *outside* the views):
 import logging
 import threading
 import time
+from typing import Optional
 
 from .conf import get_setting, slow_response_threshold
 from .context import clear_current_request, set_current_request
@@ -37,10 +38,10 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Tracking store lifecycle
 # ---------------------------------------------------------------------------
-_store: TrackingStore | None = None
+_store: Optional[TrackingStore] = None
 
 
-def get_store() -> TrackingStore | None:
+def get_store() -> Optional[TrackingStore]:
     return _store
 
 
@@ -74,7 +75,7 @@ class UserCounter:
         self.total_authenticated_seen = 0
         self.total_anonymous_seen = 0
 
-    def enter(self, user, session_key: str | None = None) -> str:
+    def enter(self, user, session_key: Optional[str] = None) -> str:
         """Increment counters and return the category ('authenticated'|'anonymous')."""
         is_auth = user is not None and getattr(user, 'is_authenticated', False)
         with self._lock:

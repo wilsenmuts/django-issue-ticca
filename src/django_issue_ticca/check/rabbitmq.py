@@ -8,12 +8,12 @@ Uses ``kombu`` (already a Celery dependency) or ``pika`` if available; returns
 """
 
 import time
-from typing import Any
+from typing import Any, Optional
 
 from django.conf import settings
 
 
-def _broker_url() -> str | None:
+def _broker_url() -> Optional[str]:
     from django_issue_ticca.conf import get_setting
 
     url = get_setting('RABBITMQ_URL')

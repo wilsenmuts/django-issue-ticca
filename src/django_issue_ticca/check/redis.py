@@ -9,12 +9,12 @@ subsystem is absent.
 """
 
 import time
-from typing import Any
+from typing import Any, Optional
 
 from django.conf import settings
 
 
-def _redis_url() -> str | None:
+def _redis_url() -> Optional[str]:
     from django_issue_ticca.conf import get_setting
 
     url = get_setting('REDIS_URL')

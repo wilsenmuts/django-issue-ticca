@@ -7,6 +7,7 @@ import threading
 import time
 import uuid
 from contextlib import contextmanager
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -61,8 +62,8 @@ class TrackingStore:
         self.flush_interval = flush_interval
         self.max_queue_size = max_queue_size
         self.queue: queue.Queue = queue.Queue(maxsize=max_queue_size)
-        self._instance_id: int | None = None
-        self._thread: threading.Thread | None = None
+        self._instance_id: Optional[int] = None
+        self._thread: Optional[threading.Thread] = None
         self._running = False
 
     # ---------------------------------------------------------------- public
@@ -107,10 +108,10 @@ class TrackingStore:
         except Exception:
             logger.exception("Failed to mark instance dead")
 
-    def enter(self, user_id: int | None, session_key: str | None):
+    def enter(self, user_id: Optional[int], session_key: Optional[str]):
         self._put(('enter', user_id, session_key))
 
-    def exit(self, user_id: int | None, session_key: str | None):
+    def exit(self, user_id: Optional[int], session_key: Optional[str]):
         self._put(('exit', user_id, session_key))
 
     # ------------------------------------------------------------ internals

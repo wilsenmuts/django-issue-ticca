@@ -18,6 +18,7 @@ it stops. See ``middleware.ResponseTimeLoggingMiddleware`` for step 3.
 
 import logging
 import traceback
+from typing import Optional
 
 from django.db import transaction
 from django.utils import timezone
@@ -158,7 +159,7 @@ def log_slow_response(request, duration: float, threshold: float):
     )
 
 
-def resolve_method(affected_method: str, kind: str | None = None):
+def resolve_method(affected_method: str, kind: Optional[str] = None):
     """
     Close every open incident for ``affected_method`` (optionally filtered by
     ``kind``). Returns the list of incidents that were closed.

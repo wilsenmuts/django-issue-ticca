@@ -156,7 +156,7 @@ endpoint never fails just because a subsystem isn't installed.
 
 ## Coding guidelines
 
-- **Python 3.10+**, **Django 4.2+**. Type-hint public functions.
+- **Python 3.9+**, **Django 4.2+**. Type-hint public functions.
 - Match the surrounding style; keep lines to **100 characters** and run `ruff check src tests`.
 - **Never let bookkeeping break a request.** Tracking code (middleware, hourly stats) must
   wrap its work in `try/except` and log failures instead of raising.
